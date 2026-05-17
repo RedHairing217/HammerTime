@@ -76,6 +76,16 @@ HammerTime/
 
 ## Workflow
 
+Start the terminal UI from the repo root:
+
+```bash
+python src/start.py
+```
+
+Navigate with number keys. Select a pipeline, choose an action, confirm when prompted. The UI handles dataset preparation, training, evaluation, and failure analysis for both binary and multi-class pipelines. Settings is a placeholder for a future parameter configuration menu.
+
+All scripts can also be run directly from the command line without the UI.
+
 ### Binary classifier (single target class)
 
 ```bash
@@ -107,6 +117,12 @@ python src/multi/evaluate_m.py --split test --v1_compare
 ---
 
 ## Scripts Reference
+
+### Entry Point
+
+| Script | Purpose |
+|--------|---------|
+| `src/start.py` | Terminal UI. Launch all pipelines from a single menu-driven interface. |
 
 ### Shared
 
