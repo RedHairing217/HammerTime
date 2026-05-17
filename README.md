@@ -42,19 +42,19 @@ HammerTime/
             prepare_dataset.py     <- single shared pipeline for both modes
             count_dataset.py
         binary/
-            train.py
-            evaluate.py
-            predict.py
-            analyze_failures.py
-            analyze_false_positives.py
-            export.py
+            train_b.py
+            evaluate_b.py
+            predict_b.py
+            analyze_failures_b.py
+            analyze_false_positives_b.py
+            export_b.py
         multi/
-            train.py
-            evaluate.py
-            predict.py
-            analyze_failures.py
-            analyze_false_positives.py
-            export.py
+            train_m.py
+            evaluate_m.py
+            predict_m.py
+            analyze_failures_m.py
+            analyze_false_positives_m.py
+            export_m.py
     data/
         classes/
             hammer/
@@ -100,7 +100,7 @@ python src/multi/evaluate_m.py --split test --v1_compare
 
 **Immutable source labels.** `data/labels/` is never modified. Binary mode remaps labels in memory when writing to `dataset/`, so the same source data supports both pipelines without annotation duplication.
 
-**Shared test manifest.** `dataset/test_manifest.txt` locks the test set on first run. New images always route to train/val only. The same 93-image test set is used for both the binary and multi-class capstone comparison.
+**Shared test manifest.** `dataset/test_manifest.txt` locks the test set on first run. New images always route to train/val only. The same locked test set is used for both the binary and multi-class capstone comparison.
 
 **Switching modes.** Re-run `prepare_dataset.py` with or without `--target_class` to rebuild `dataset/` for either pipeline. Runs are stored in `runs/binary/` and `runs/multi/` separately.
 
@@ -143,26 +143,14 @@ python src/multi/evaluate_m.py --split test --v1_compare
 
 | Setting | Value |
 |---------|-------|
-| Hardware | Apple M4 Pro, MPS backend |
-| Base model | yolov8n.pt (COCO pretrained) |
+| Hardware | Apple M4 Pro, 24GB MacBook Pro, MPS backend |
+| Base model | yolov8n.pt (COCO pretrained, ~3M params) |
 | Image size | 640x640 |
 | Batch | 16 |
 | Epochs | 400 (patience 50) |
-| Augmentation | degrees=45, scale=0.6, shear=10, mixup=0.1, copy_paste=0.1 |
+| Optimiser | SGD, lr=0.01, cosine decay |
+| Augmentations | degrees=45, scale=0.6, shear=10, mixup=0.1, copy_paste=0.1, mosaic=1.0 |
 | Conf threshold | 0.20 |
-
----
-
-## V1 Run 9 Baseline (hammer, binary classifier)
-
-| Metric | Value |
-|--------|-------|
-| mAP@50 | 0.8858 |
-| mAP@50-95 | 0.5829 |
-| Precision | 0.8743 |
-| Recall | 0.9098 |
-
-Evaluated on 93-image locked test set.
 
 ---
 
@@ -171,3 +159,437 @@ Evaluated on 93-image locked test set.
 - YOLOv8 auto-increments run names (train-2, train-3 etc.). Update `--weights` path accordingly.
 - macOS creates " 2" duplicate files on filename collision. Run `find data/classes -name "* 2.*" -delete` before `prepare_dataset.py`.
 - `dataset/` is fully disposable and must be rebuilt when switching between binary and multi-class modes.
+- best.pt renders as a hyperlink in some terminals. Always type the path manually.
+
+---
+
+---
+
+# Binary Classifier — Experiment Record
+
+Single-class object detector that identifies hammers in images. Built on YOLOv8-Nano with pretrained COCO weights.
+
+---
+
+## Project Purpose
+
+This project is a data-centric ML experiment. The model architecture and training code are fixed. The primary variable under investigation is the dataset composition, specifically how changes to data quantity, quality, and diversity affect validation metrics.
+
+All images were personally sourced from the internet and hand-annotated by me. No programmatic scraping, no pre-labelled datasets, no augmentation-as-data. All training and evaluation was run from command line.
+
+The research question: what data changes move the needle on mAP@50, mAP@50-95, Precision, and Recall; and by how much?
+
+All target metrics were met at baseline. As such, the purpose of subsequent runs is to explore how improved dataset composition can help identify performance bottlenecks and optimize capability.
+
+Each run is a controlled experiment:
+- Data changes made between runs
+- Metrics compared to isolate the effect of each change
+- To maintain focus on data composition, parameter adjustments will only be made when necessary to expand a bottleneck
+
+---
+
+## Evaluation Targets
+- mAP@50: 0.75-0.90
+- mAP@50-95: 0.55+
+- Precision: 0.85+
+- Recall: 0.75+
+
+---
+
+## Run History
+
+| Run | Images | Backgrounds | mAP@50 | mAP@50-95 | Precision | Recall | Patience | Epochs | Key change |
+|-----|--------|-------------|--------|-----------|-----------|--------|----------|--------|------------|
+| 1 | 451 | 0 | 0.8706 | 0.5654 | 0.9040 | 0.7730 | 30 | ~115 | Baseline |
+| 2 | 505 | 54 | 0.8083 | 0.5535 | 0.9185★ | 0.7455 | 30 | ~68min | +54 Background images |
+| 3 | 505 | 54 | 0.7825 | 0.5298 | 0.9028 | 0.7727 | 50 | 188 | Patience 30 to 50, same dataset as run 2 |
+| 4 | 502 | 54 | 0.8150 | 0.5310 | 0.9182 | 0.7797 | 50 | 200 | Deleted 3 bad annotations |
+| 5 | 604 | 54 | 0.8619 | 0.5441 | 0.9233★ | 0.8285 | 50 | 200 | +102 real-scene images |
+| 6 | 659 | 54 | 0.8253 | 0.5256 | 0.8652 | 0.8421 | 50 | 200 | +55 targeted images (mallets, partial occlusion, worn hammers) |
+| 7 | ~513 | 54 | 0.8187 | 0.5314 | 0.8508 | 0.8281 | 50 | 200 | Low-res quality pass, annotation cleanup |
+| 8 (ep 200) | 647 | 79 | 0.8770 | 0.5420 | 0.8830 | 0.7640 | 50 | 200/239 | Pickaxe/hatchet hard negatives |
+| 8 (final) | 647 | 79 | 0.8450 | 0.5625 | 0.8765 | 0.8503★ | 50 | 239 | Pickaxe/hatchet hard negatives |
+| 9 | 647 | 79 | 0.8858★ | 0.5829★ | 0.8743 | 0.9098★ | 50 | 266 | 70/15/15 split, 400 epoch ceiling, early stop ep266 (ISO TEST SET) |
+| 10 | 680 | 100 | 0.5779 | 0.3680 | 0.6139 | 0.8037 | 50 | 266 | Ball-peen, cross-peen, catalogue hard negatives (ISO TEST SET) |
+| 11 | 665 | 85 | 0.7849 | 0.4799 | 0.8514 | 0.8029 | 50 | 160 | Catalogue hard negatives removed, ball-peen and cross-peen retained (ISO TEST SET) |
+
+---
+
+## Persistent Findings
+
+All target metrics were met across every run through run 9. The model performed as intended within the constraints of single-class binary detection.
+
+Across all runs, several consistent patterns emerged:
+- **Precision has been the most variable metric:** Strong at baseline (0.90+) but sensitive to dataset composition changes, recovering to 0.8743 in run 9 on the held-out test set
+- **Recall improved consistently through run 9:** From 0.773 at baseline to 0.9098, driven by real-scene diversity and targeted additions. Fell in runs 10 and 11 as data additions corrupted the decision boundary.
+- **The epoch ceiling was a significant miss:** Runs 4 through 7 all hit the 200 epoch limit, truncating training before convergence. The metrics from run 8 at 300 and run 9 at 400 epochs, both stopping before hitting the ceiling, confirmed the importance of full convergence.
+- **Hard negative additions work for real-scene clarification:** Real-scene pickaxe and hatchet backgrounds reduced FP confusion on hammer-like striking tools.
+- **Val leakage was a significant confound:** Run 9 metrics represented significant gains on run 8 metrics with no parameter or dataset changes. For future projects, I will be starting with a larger dataset that is capable of implementing a test split throughout testing.
+- **Real-scene images remain the primary Recall lever:** Established in run 5, confirmed across subsequent runs.
+- **Run 9 hit the ceiling for binary model data composition testing:** Every data addition after run 9 degraded performance. This finding is expanded on below.
+
+**Architectural limitation:**
+The single-class binary model appears to lack the internal complexity to cleanly partition its input space. This is reminiscent of Ashby's Law of Requisite Variety. Though a classifier is not a controller, the underlying principle is similar: a binary output space may be insufficient to handle a highly varied input distribution.
+
+**Methodology:** Runs 9, 10, and 11 were all run with a preserved test set. This means that all changes to performance are isolated to training efficacy, since the same data was used for inference across all three runs. The only exception to this being the removal of three catalogue background photos from the test set between runs 10 and 11.
+
+**Hypothesis:** The internal complexity of a binary model became insufficient to process the width of complexity that had been reached within the background data.
+
+**Justification:** The crater occurred as soon as the background dataset moved from primarily complex scene images to including many isolated hammer-like objects in catalogue photos (hatchets, pickaxes, etc). I expect this destabilised the decision boundary, as many of the photos within the background class became as or more similar to the hammer-class photos than they were to each other. While the catalogue backgrounds were added in conjunction with a deeper set of annotated hammer photos, this hypothesis is supported by the performance recovery that was achieved by removing the background catalogue images in Run 11.
+
+**Conclusion:** The next step to make the model more durable will be increasing the internal complexity through a multi-class version, so that it will be able to parse into distinct classes of hammer-similar objects. I will be attempting to stabilize the decision boundary by grounding its perception of the differences between hammers and other similarly shaped tools. Continuing to tune data composition on the current build will produce diminishing returns since this model clearly cannot handle further increases to complexity.
+
+---
+
+## Version 2 - Multi-Class Object Detection
+
+**Motivation:** The single-class binary classifier has reached its practical ceiling. Run 10 demonstrated that adding training signal for hammer-adjacent tool categories reaches a tipping point and begins degrading performance for a binary classifier once a sufficient level of background complexity is reached. This is likely due to destabilisation of the decision boundary.
+
+**Proposed classes:** hammer, axe, wrench, pickaxe
+
+**Starting point:** Current dataset with existing annotations as the hammer class. Remaining classes sourced from public datasets (Roboflow, Open Images) and manually annotated.
+
+**Primary Goal:**
+Model is able to intake higher complexity datasets without performance destabilization.
+
+**Hypothesis:**
+The model may struggle to achieve the same performance peak as the binary classifier without implementing parameter tuning.
+If this is the final result, it will support the theory that the binary model's performance peak was artificially boosted by its opportunity to sort all catalogue photos into the hammer class.
+The durability boost may come at the cost of less impressive metrics.
+
+**Scope Observation:**
+The scope of version 2 will be to determine how multi-class detection impacts the durability of hammer detection.
+Since this project is purely educational, the data composition of non-hammer objects will only be tuned to the extent that it benefits hammer detection.
+Sub-par results within non-hammer categories will be accepted once improvement of non-hammer classes produces diminishing returns for hammer detection.
+
+---
+
+## Experiment Log
+
+### Run 1 - Baseline
+
+- 451 images, 542 annotations, 0 backgrounds
+- 80% PDF catalogue scans (white background), 20% real photos (Pexels, Getty)
+- Labels remapped from class ID 1 to 0 via sed
+
+**Notable Starting Factors:**
+- 80% catalogue dominance presents a real-world generalisation risk
+- No test split
+
+**Result:**
+- mAP@50: 0.8706
+- mAP@50-95: 0.5654
+- Precision: 0.9040
+- Recall: 0.7730
+
+All evaluation targets met! I attribute this to, frankly, the catalogue dominance as much as the care taken during annotation. Boxes were drawn tight around each hammer with minimal clipping, and every hammer visible in each image was labelled. Clean annotations gave the model a clean training signal.
+
+---
+
+### Run 2 - Background Images
+Primary purpose is to begin deploying the model into real world circumstances now that a catalogue baseline is established
+
+**Hypothesis:** Adding 54 background images may also improve Precision by reducing false positives. A dip in performance for other metrics is anticipated since the object now has more diversity.
+
+**Result:**
+- mAP@50: 0.8083 (*-0.0623*)
+- mAP@50-95: 0.5535 (-0.0119)
+- Precision: 0.9185★ (**+0.0145**)
+- Recall: 0.7455 (*-0.0275*)
+
+**Conclusion:** Precision hypothesis confirmed. mAP and Recall both dropped as expected. Training completed in 68.4 min versus 159.5 min at baseline, indicating early stopping triggered before the model had adapted to the new negatives. Patience=30 may have been too aggressive for this dataset shift.
+
+---
+
+### Run 3 - Patience 50 (Bottleneck test, same dataset as run 2)
+
+**Hypothesis:** Early stopping was the culprit in run 2. Increasing patience to 50 may allow the model to recover mAP while retaining the Precision gain. If parameter adjustment is necessary I want to rule it out early so that the impact of composition adjustment can be isolated.
+
+**Result:**
+- mAP@50: 0.7825 (*-0.0258*)
+- mAP@50-95: 0.5298 (*-0.0237*)
+- Precision: 0.9028 (-0.0157)
+- Recall: 0.7727 (**+0.0272**)
+
+**Conclusion:** Hypothesis ruled out. While recall was gained, all other metrics dipped. Early stopping was not the primary factor. This indicates that dataset composition is likely to drive the Precision-Recall divergence.
+
+---
+
+### Run 4 - Annotation Cleanup
+
+**Hypothesis:** Removing 3 tiny/zero-area annotations would isolate the effect of annotation noise and produce a modest metric improvement.
+
+**Result:**
+- mAP@50: 0.8150 (**+0.0325**)
+- mAP@50-95: 0.5310 (+0.0012)
+- Precision: 0.9182 (**+0.0154**)
+- Recall: 0.7797 (+0.0070)
+
+**Conclusion:** Annotation noise had a more significant impact than expected. Removing just 3 bad boxes produced a cleaner training signal. The Precision-Recall divergence persists. Going to begin adding more real-scene images to help the model see more hammers in use.
+
+---
+
+### Run 5 - Real-Scene Images
+
+**Hypothesis:** Adding roughly 100 real-scene images would raise Recall by exposing the model to hammers in context.
+
+**Dataset:** 102 real-background images sourced from iStock: hammers in hands, on workbenches, in construction scenes. All hand-annotated by me. Total dataset 604 images.
+
+**Result:**
+- mAP@50: 0.8619 (**+0.0469**)
+- mAP@50-95: 0.5441 (**+0.0131**)
+- Precision: 0.9233★ (+0.0051)
+- Recall: 0.8285★ (**+0.0488**)
+
+**Conclusion:** Hypothesis confirmed! Improving real-scene image diversity resulted in significant gains in all metrics. mAP@50 and Recall both jumped significantly. Both Precision and Recall now exceed the run 1 baseline.
+
+---
+
+## Failure Mode Analysis (Complete)
+
+**Goal:** Identify common traits among missed hammer detections before adding new data.
+
+**Approach:** Ran analyze_failures_b.py on the val set, cross-referenced predictions against ground truth labels to isolate false negatives, then reviewed all 29 false negative images manually.
+
+**Statistical findings (40 misses across 305 GT boxes, Recall 0.8689):**
+- Size distribution: medium 42.5%, small 30.0%, large 20.0%, tiny 7.5%
+- Orientation: landscape 47.5%, portrait 32.5%, square 20.0%
+- Average missed box area: 9.77% of image
+- No strong positional clustering
+
+**Manual review findings:**
+Three distinct failure modes identified from visual inspection of false negative images:
+
+1. **Mallets** - rubber, dead-blow, and wooden mallets are consistently missed regardless of background. The cylindrical head profile is underrepresented in the dataset relative to claw hammer geometry. Primary failure mode.
+2. **Partial occlusion.** Hammers where the head or handle is obscured by hands or surrounding objects are frequently missed, particularly when the visible portion lacks a distinctive silhouette.
+3. **Worn and rusty hammers.** Aged tools with deteriorated surfaces that no longer match the clean catalogue appearance the model was primarily trained on.
+
+A grayscale image miss was also observed but is considered a one-off edge case not worth targeting.
+
+**Conclusion:** The failure modes are appearance-based rather than geometric. The statistical summary (size, position, orientation) showed no strong clustering, confirming that manual review was necessary to identify the true patterns. Mallet underrepresentation is the primary intervention target for run 6.
+
+---
+
+### Run 6 - Targeted Image Addition (Mallets, Partial Occlusion, Worn Hammers)
+
+**Hypothesis:** Adding targeted images addressing the three failure modes identified in the failure mode analysis would raise Recall further while Precision holds above 0.85.
+
+**Dataset:** 55 targeted images added: mallets across rubber, dead-blow, wooden, and white varieties; hammers with partially visible heads; worn and rusty hammers in real scenes. Total dataset approximately 659 images.
+
+**Result:**
+- mAP@50: 0.8253 (*-0.0366*)
+- mAP@50-95: 0.5256 (*-0.0185*)
+- Precision: 0.8652 (*-0.0581*)
+- Recall: 0.8421★ (**+0.0136**)
+
+**Conclusion:** Recall reached 0.8421, the highest across all runs. Precision dropped to 0.8652, still above target but the lowest across all runs. The dip may be attributable to lazy low-resolution image sourcing, many under 300px. These were moved to a review folder for replacement before run 7.
+
+---
+
+### Run 7 - Low-Resolution Image Quality Pass
+
+**Hypothesis:** Replacing low-resolution source images with higher quality equivalents would recover mAP and Precision lost in run 6 while holding the Recall gains.
+
+**Dataset:** Low-resolution images (below 300px short side) identified and replaced. Improperly annotated images removed. Dataset approximately 513 images after cleanup.
+
+**Result:**
+- mAP@50: 0.8187 (*-0.0066*)
+- mAP@50-95: 0.5314 (**+0.0058**)
+- Precision: 0.8508 (*-0.0144*)
+- Recall: 0.8281 (*-0.0140*)
+
+**Conclusion:** mAP@50-95 improved, confirming the resolution pass helped localisation. mAP@50, Precision, and Recall all dipped slightly. The Precision drop from run 5 was not recovered, indicating the targeted additions introduced genuine confusion beyond resolution noise. I am going to run a false positive analysis to identify specific failure points.
+
+**Epoch ceiling note:** Runs 4, 5, 6, and 7 all hit the 200 epoch ceiling, suggesting the model had not fully converged before cutoff. As dataset complexity grew, more training runway was likely needed. It is a notable learning lesson that this was not identified earlier. Metric changes between runs 4 through 7 may reflect training truncation as much as data composition changes. Directional findings are probably still valid, but magnitude shifts are likely to be misleading. Run 8 uses --epochs 300 to test the impact of hitting the ceiling.
+
+---
+
+## False Positive Analysis (Complete)
+
+**Goal:** Identify the source of Precision loss following runs 6 and 7.
+
+**Approach:** Ran analyze_false_positives_b.py on the val set. 72 false positives identified across 47 images, with average FP confidence of 0.458.
+
+**Key findings:**
+
+1. **Annotation gaps.** Most FPs (68 of 72) occurred on hammer images. Many were the model correctly detecting unannotated hammers, labelling gaps rather than model errors. Improperly annotated images have been removed.
+2. **Axes, hatchets, and pickaxes misidentified as hammers.** The model fires on these at up to 0.85 confidence. All share a handle-plus-head silhouette with hammers. The dataset had no pickaxe backgrounds and insufficient hatchet examples. I expect this is the primary gap in composition.
+3. **Oversized prediction boxes.** The model correctly detected hammers but drew boxes larger than GT annotations, failing the IoU threshold. Localisation errors may be partially attributable to remaining low-resolution images.
+4. **Chisels triggering FPs.** Chisels fired at moderate confidence despite being included as hard negatives. Existing chisel backgrounds may lack sufficient visual variety.
+5. **Double detections.** Some images produced two overlapping predictions on the same hammer. An NMS behaviour, not a data issue.
+
+**Actions taken:**
+- Removed improperly annotated images from dataset
+- Adding 8-10 pickaxe background images (previously 0 in dataset)
+- Adding 6-8 additional hatchet background images (currently 4, targeting approximately 12 total)
+- Target approximately 100 total background images after additions
+
+---
+
+### Run 8 - Pickaxe and Hatchet Hard Negatives (300 Epochs)
+
+**Hypothesis:**
+1. Adding targeted hard negative images for pickaxes and hatchets would reduce false positives on hammer-like striking tools, recovering Precision while holding Recall.
+2. Moving the epoch ceiling up to 300 will resolve the bottleneck observed since run 4.
+
+**Dataset:** 8-10 pickaxe and 6-8 additional hatchet background images added. Total backgrounds approximately 100. No hammer image additions.
+
+**Epoch 200 snapshot (to isolate the data composition adjustment test from the increased epoch ceiling):**
+- mAP@50: 0.8770 (**+0.0583**)
+- mAP@50-95: 0.5420 (**+0.0106**)
+- Precision: 0.8830 (**+0.0322**)
+- Recall: 0.7640 (*-0.0641*)
+
+**Final result (ep 239, early stop):**
+- mAP@50: 0.8450 (*-0.0320*)
+- mAP@50-95: 0.5625 (**+0.0205**)
+- Precision: 0.8765 (**+0.0257**)
+- Recall: 0.8503★ (**+0.0863**)
+
+**Conclusion:** Both hypotheses confirmed. Hard negatives recovered Precision and the epoch ceiling was clearly a bottleneck. The ep 200 snapshot shows the data composition impact in isolation. Extended training then recovered Recall significantly. mAP@50-95 improvement confirms better localisation quality.
+
+---
+
+### Run 9 - 70/15/15 Split and 400 Epoch Ceiling (ISO TEST SET)
+
+**Hypothesis:** Implementing a proper 70/15/15 train/val/test split and raising the epoch ceiling to 400 would produce the most reliable and highest-performing result to date, isolating val leakage as a confound.
+
+**Dataset:** Same 647 images as run 8. Split changed from 80/20 to 70/15/15. Test set locked via test_manifest.txt.
+
+**Result (evaluated on held-out test set):**
+- mAP@50: 0.8858★
+- mAP@50-95: 0.5829★
+- Precision: 0.8743
+- Recall: 0.9098★
+
+**Conclusion:** Run 9 is the binary classifier ceiling. All metrics are at or near experiment highs. The val leakage hypothesis was confirmed -- gains were partially artificial in prior runs. Early stopping at epoch 266 confirmed the 400 epoch ceiling provided sufficient runway. This result is the V1 baseline for all future comparisons.
+
+---
+
+### Run 10 - Ball-Peen, Cross-Peen, Catalogue Hard Negatives (ISO TEST SET)
+
+**Hypothesis:** Adding ball-peen and cross-peen hammer images alongside catalogue hard negatives for hatchets and wrenches would further stabilise the decision boundary.
+
+**Dataset:** 33 additional images added: ball-peen hammers, cross-peen hammers, catalogue hatchets and wrenches on white backgrounds. Total 680 images, 100 backgrounds.
+
+**Result (evaluated on held-out test set):**
+- mAP@50: 0.5779 (*-0.3079*)
+- mAP@50-95: 0.3680 (*-0.2149*)
+- Precision: 0.6139 (*-0.2604*)
+- Recall: 0.8037 (*-0.1061*)
+
+**Conclusion:** Catastrophic regression. The catalogue hard negatives destabilised the decision boundary. Many non-hammer catalogue images became more visually similar to hammer catalogue images than to each other, making the non-hammer class internally incoherent. This is a clear manifestation of Ashby's Law of Requisite Variety applied to a binary classifier.
+
+---
+
+### Run 11 - Catalogue Hard Negatives Removed (ISO TEST SET)
+
+**Hypothesis:** Removing the catalogue hard negatives while retaining ball-peen and cross-peen images would recover performance.
+
+**Dataset:** Catalogue hatchet and wrench backgrounds removed. Ball-peen and cross-peen images retained. 665 images, 85 backgrounds.
+
+**Result (evaluated on held-out test set):**
+- mAP@50: 0.7849 (*-0.1009* vs run 9)
+- mAP@50-95: 0.4799 (*-0.1030* vs run 9)
+- Precision: 0.8514 (*-0.0229* vs run 9)
+- Recall: 0.8029 (*-0.1069* vs run 9)
+
+**Conclusion:** Partial recovery confirmed the catalogue images were the primary cause of the run 10 regression. Full recovery was not achieved, suggesting ball-peen and cross-peen additions introduced mild confusion of their own. Every data addition after run 9 degraded performance. The binary classifier has reached its practical ceiling. Version 2 development begins.
+
+---
+
+## Quick Start
+
+### 1. Install
+
+```bash
+pip install -r requirements.txt
+```
+
+Apple Silicon (M1/M2/M3/M4):
+```bash
+pip install -r requirements.txt
+# MPS backend is included in standard torch with no extra install needed
+```
+
+NVIDIA GPU (CUDA 12.1):
+```bash
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+pip install -r requirements.txt
+```
+
+### 2. Prepare Dataset
+
+```bash
+python src/shared/prepare_dataset.py --target_class hammer
+```
+
+Reads from data/classes/, validates labels, removes duplicates, and creates a stratified 70/15/15 train/val/test split in dataset/. On first run writes test_manifest.txt to lock the test set. On subsequent runs the manifest is respected, new images route to train/val only, and the test set is never reshuffled. Source label files in data/labels/ are never modified.
+
+### 3. Train
+
+```bash
+python src/binary/train_b.py
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| --epochs | 400 | Max epochs |
+| --patience | 50 | Early stopping patience |
+| --batch | 16 | Reduce to 8 if OOM |
+| --imgsz | 640 | Input resolution |
+| --device | mps | mps, 0, or cpu |
+| --resume | | Resume from last.pt |
+| --export | | Auto-export ONNX after training |
+| --no_aug | | Disable heavy augmentations |
+| --exist_ok | | Reuse existing run directory |
+
+Weights saved to runs/binary/train/weights/best.pt. YOLOv8 auto-increments the run name if the directory exists (train-2, train-3, etc.).
+
+### 4. Evaluate
+
+```bash
+python src/binary/evaluate_b.py --weights runs/binary/train/weights/best.pt
+```
+
+For final evaluation against the held-out test set:
+```bash
+python src/binary/evaluate_b.py --weights runs/binary/train-N/weights/best.pt --split test --v1_compare
+```
+
+### 5. Predict
+
+```bash
+python src/binary/predict_b.py --source photo.jpg --weights runs/binary/train/weights/best.pt
+python src/binary/predict_b.py --source data/classes/hammer/ --weights runs/binary/train/weights/best.pt --save
+python src/binary/predict_b.py --source data/classes/hammer/ --weights runs/binary/train/weights/best.pt --report results.json
+python src/binary/predict_b.py --source 0 --weights runs/binary/train/weights/best.pt --show
+```
+
+### 6. Export
+
+```bash
+python src/binary/export_b.py
+python src/binary/export_b.py --format tflite
+python src/binary/export_b.py --format coreml
+```
+
+---
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---------|-----|
+| dataset.yaml not found | Run prepare_dataset.py first |
+| best.pt not found | Run train_b.py first; always type the path manually as copying from chat renders it as a hyperlink |
+| Weights path has train-2, train-3 | YOLOv8 auto-increments; use --exist_ok or update the --weights path manually |
+| mAP@50 < 0.75 | Add images targeting val failures and re-run the pipeline |
+| Many false positives | Add hard-negative backgrounds such as drills, wrenches, axes, hatchets, or pickaxes |
+| Low Recall | Add real-scene hammer images with diverse backgrounds, angles, and occlusion |
+| CUDA / MPS out of memory | Lower --batch to 8 or 4 |
+| Training stalls at epoch 1 | Check that dataset/dataset.yaml paths are correct |
+| Labels flagged as class ID 1 | Run: for f in data/labels/*.txt; do sed -i "" "s/^1 /0 /g" "$f"; done |
+| NMS time limit warning | Cosmetic only, safe to ignore |
+| Evaluation metrics block empty | Use metrics.results_dict instead of attribute access in evaluate_b.py |
+| dataset/images/ file count is ~1.5x source images | Symlinks inflate file counts. Pass --copy to prepare_dataset.py to switch to copies |
+| Dataset split count does not match source | Delete dataset/ and re-run prepare_dataset.py to rebuild cleanly |
