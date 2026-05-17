@@ -212,6 +212,8 @@ Each run is a controlled experiment:
 | 9 | 647 | 79 | 0.8858★ | 0.5829★ | 0.8743 | 0.9098★ | 50 | 266 | 70/15/15 split, 400 epoch ceiling, early stop ep266 (ISO TEST SET) |
 | 10 | 680 | 100 | 0.5779 | 0.3680 | 0.6139 | 0.8037 | 50 | 266 | Ball-peen, cross-peen, catalogue hard negatives (ISO TEST SET) |
 | 11 | 665 | 85 | 0.7849 | 0.4799 | 0.8514 | 0.8029 | 50 | 160 | Catalogue hard negatives removed, ball-peen and cross-peen retained (ISO TEST SET) |
+| 12 | 1051 | 471 | 0.8654 | 0.5751 | 0.8668 | 0.8879 | 50 | 400 | Binary model on multi-class dataset, 386 catalogue hard negatives (ISO TEST SET) |
+| V2.1 | 1051 | 471 | 0.8191 | 0.6280 | 0.8300 | 0.8018 | 50 | 400 | Multi-class model, 6 classes, same dataset as Run 12 (ISO TEST SET) |
 
 ---
 
@@ -440,61 +442,184 @@ A grayscale image miss was also observed but is considered a one-off edge case n
 - Precision: 0.8830 (**+0.0322**)
 - Recall: 0.7640 (*-0.0641*)
 
-**Final result (ep 239, early stop):**
-- mAP@50: 0.8450 (*-0.0320*)
-- mAP@50-95: 0.5625 (**+0.0205**)
+**Final result (compared to run 7):**
+- mAP@50: 0.8450 (**+0.0263**)
+- mAP@50-95: 0.5625 (**+0.0311**)
 - Precision: 0.8765 (**+0.0257**)
-- Recall: 0.8503★ (**+0.0863**)
+- Recall: 0.8503★ (**+0.0222**)
 
-**Conclusion:** Both hypotheses confirmed. Hard negatives recovered Precision and the epoch ceiling was clearly a bottleneck. The ep 200 snapshot shows the data composition impact in isolation. Extended training then recovered Recall significantly. mAP@50-95 improvement confirms better localisation quality.
+**Snapshot Analysis:** This run confirms both hypotheses. We can see improvement in all metrics, except for Recall, at the 200 snapshot mark. This indicates a positive impact from the composition adjustment. Considering that Recall recovered up to its highest mark after 239 epochs, I'm concluding that the drop at snapshot is due to the increased complexity requiring a longer runtime to optimize through the inherent tension between Recall and Precision.
 
----
+**Conclusion:** Recall at 0.8503 is the highest across all runs to date. mAP@50-95 at 0.5625 exceeds the 0.55 target. Precision recovered from run 7 to 0.8765.
 
-### Run 9 - 70/15/15 Split and 400 Epoch Ceiling (ISO TEST SET)
+Early stopping triggered at epoch 289 with best weights saved at epoch 239. This confirms that 300 epochs is the appropriate ceiling for this model and dataset.
 
-**Hypothesis:** Implementing a proper 70/15/15 train/val/test split and raising the epoch ceiling to 400 would produce the most reliable and highest-performing result to date, isolating val leakage as a confound.
-
-**Dataset:** Same 647 images as run 8. Split changed from 80/20 to 70/15/15. Test set locked via test_manifest.txt.
-
-**Result (evaluated on held-out test set):**
-- mAP@50: 0.8858★
-- mAP@50-95: 0.5829★
-- Precision: 0.8743
-- Recall: 0.9098★
-
-**Conclusion:** Run 9 is the binary classifier ceiling. All metrics are at or near experiment highs. The val leakage hypothesis was confirmed -- gains were partially artificial in prior runs. Early stopping at epoch 266 confirmed the 400 epoch ceiling provided sufficient runway. This result is the V1 baseline for all future comparisons.
+The epoch ceiling bottleneck identified in run 7 is validated. Runs 4 through 7 were likely undertrained, meaning the metric trajectory across those runs is probably a dishonest representation of the impact of the data composition changes made internally before the ceiling was raised. I will be keeping a closer watch for truncated training moving forward so that the signal blur can be excised swiftly.
 
 ---
 
-### Run 10 - Ball-Peen, Cross-Peen, Catalogue Hard Negatives (ISO TEST SET)
+## Run 9 - Train/Val/Test Split and Clean Test Baseline
 
-**Hypothesis:** Adding ball-peen and cross-peen hammer images alongside catalogue hard negatives for hatchets and wrenches would further stabilise the decision boundary.
+**Hypothesis:** A 70/15/15 train/val/test split will establish a trustworthy held-out evaluation baseline before further data additions.
 
-**Dataset:** 33 additional images added: ball-peen hammers, cross-peen hammers, catalogue hatchets and wrenches on white backgrounds. Total 680 images, 100 backgrounds.
+**Changes:**
+- 70/15/15 train/val/test split via updated prepare_dataset.py
+- Test set locked via test_manifest.txt (96 images, fixed for all future runs)
+- epochs=400, cache=False, MPS backend, symlinks
+- EXIF metadata stripped from all source images
 
-**Result (evaluated on held-out test set):**
-- mAP@50: 0.5779 (*-0.3079*)
-- mAP@50-95: 0.3680 (*-0.2149*)
-- Precision: 0.6139 (*-0.2604*)
+**Dataset:** 647 images, 79 backgrounds. Train 448 / Val 97 / Test 96.
+
+**Note:** Initial run capped at 300 epochs before convergence. Results discarded and reran with 400 epoch ceiling to eliminate the training bottleneck. Early stopping triggered at epoch 266, confirming full convergence.
+
+**Result (held-out TEST SET):**
+- mAP@50: 0.8858★ (**+0.0408**)
+- mAP@50-95: 0.5829★ (**+0.0204**)
+- Precision: 0.8743 (-0.0022)
+- Recall: 0.9098★ (**+0.0595**)
+
+**Conclusion:** All targets met. Test-set metrics achieved significant improvement over run 8 val metrics with no change to the dataset. This indicates that val leakage was a significant confound. mAP@50-95 and Recall hit experiment highs. Precision remains stable at 0.8743. Test baseline locked for Run 10.
+
+**Infrastructure notes:**
+- prepare_dataset.py: 70/15/15 split, test_manifest.txt locks test set, new images route to train/val only
+- evaluate_b.py: --split test now supported
+- analyze_failures_b.py and analyze_false_positives_b.py: --split test now supported
+- train_b.py: epochs default raised to 400
+- Symlink bug fixed: script was copying files by default, causing slower epoch times
+
+---
+
+## False Negative and False Positive Analysis (Run 9)
+
+**Approach:** Ran analyze_failures_b.py and analyze_false_positives_b.py on the val set after Run 9. Annotated outputs reviewed manually.
+
+**False negative findings (23 misses across 133 GT boxes):**
+- ~12 Hammers-pdf catalogue images missed. PDF-extracted images of various orientations and hammer types.
+- ~12 iStock real-scene images missed. Hammers in use, cluttered environments.
+- Ball-peen and Warrington/cross-peen hammer types underrepresented. Model anchors primarily on claw hammer geometry.
+- No single dominant positional or orientation pattern. Failure modes are appearance-based.
+
+**False positive findings (reviewed manually from annotated outputs):**
+- Axe/hatchet handles in hand. Handle-only region triggering, persistent across runs.
+- Catalogue hatchets on white background. Visually similar to hammer catalogue style.
+- People in construction/workwear. Hi-vis clothing and body posture triggering.
+- Wrenches/spanners. New FP source not previously identified.
+- Double detections on multi-hammer images. NMS-related, not a data gap.
+- Ball-peen hammers triggering extra FP box on handle extension beyond GT annotation.
+
+Single-occurrence FPs (pickaxe, nail gun, pliers) ignored. Insufficient frequency to justify targeted addition.
+
+---
+
+### Run 10 - Targeted Data Addition (Catalogue Hard Negatives)
+
+**Hypothesis:** Targeted data additions addressing FN and FP patterns from Run 9 gap analysis will improve Precision while holding Recall.
+
+**Changes:**
+- Added ball-peen and cross-peen hammer images (real scene and catalogue)
+- Added catalogue hatchets and wrenches as hard negatives
+- Added construction scene backgrounds
+- Total: 33 new images
+
+**Dataset:** 680 images, 100 backgrounds. Train 476 / Val 102 / Test 96.
+
+**Result (held-out TEST SET):**
+- mAP@50: 0.5779 (***-0.3079***)
+- mAP@50-95: 0.3680 (***-0.2149***)
+- Precision: 0.6139 (***-0.2604***)
 - Recall: 0.8037 (*-0.1061*)
 
-**Conclusion:** Catastrophic regression. The catalogue hard negatives destabilised the decision boundary. Many non-hammer catalogue images became more visually similar to hammer catalogue images than to each other, making the non-hammer class internally incoherent. This is a clear manifestation of Ashby's Law of Requisite Variety applied to a binary classifier.
+**Conclusion:** Massive performance crater. The catalogue hard negatives (hatchets and wrenches on white background) introduced visual ambiguity that the single-class model could not resolve. The model has one output state for all non-hammer objects. Adding catalogue-style images of visually similar tools increased input variety without increasing output variety, likely degrading the decision boundary.
+
+This result is reminiscent of Ashby's Law of Requisite Variety. The binary output space appears insufficient to partition a non-hammer class containing both complex real scenes and visually similar catalogue tool images.
+
+**Note:** Run 10 is superseded by Run 11, which isolates the ball-peen and cross-peen additions by removing catalogue hard negatives.
 
 ---
 
-### Run 11 - Catalogue Hard Negatives Removed (ISO TEST SET)
+### Run 11 (Final)
 
-**Hypothesis:** Removing the catalogue hard negatives while retaining ball-peen and cross-peen images would recover performance.
+**Hypothesis:** Removing catalogue hard negatives and retaining only ball-peen, cross-peen, and real-scene background additions will recover performance toward Run 9 levels, isolating the impact of hammer variant additions from the catalogue confusion effect.
 
-**Dataset:** Catalogue hatchet and wrench backgrounds removed. Ball-peen and cross-peen images retained. 665 images, 85 backgrounds.
+**Changes from Run 10:**
+- Catalogue hard negatives removed
+- Ball-peen and cross-peen hammer images retained
+- Real scene backgrounds retained
+- 3 catalogue background images removed from test set, reducing test set from 96 to 93 images
 
-**Result (evaluated on held-out test set):**
-- mAP@50: 0.7849 (*-0.1009* vs run 9)
-- mAP@50-95: 0.4799 (*-0.1030* vs run 9)
-- Precision: 0.8514 (*-0.0229* vs run 9)
-- Recall: 0.8029 (*-0.1069* vs run 9)
+**Dataset:** 665 images, 85 backgrounds. Train 471 / Val 100 / Test 93.
 
-**Conclusion:** Partial recovery confirmed the catalogue images were the primary cause of the run 10 regression. Full recovery was not achieved, suggesting ball-peen and cross-peen additions introduced mild confusion of their own. Every data addition after run 9 degraded performance. The binary classifier has reached its practical ceiling. Version 2 development begins.
+**Result (held-out TEST SET):**
+- mAP@50: 0.7849 (**+0.2070**)
+- mAP@50-95: 0.4799 (**+0.1119**)
+- Precision: 0.8514 (**+0.2375**)
+- Recall: 0.8029 (-0.0008)
+
+**Conclusion:** Removing catalogue hard negatives recovered most of the Run 10 regression, confirming they were the primary culprit in the performance crater. The model recovered from 0.5779 to 0.7849 mAP@50 in one step. However Run 11 did not recover to Run 9 levels. The ball-peen and cross-peen additions appear to have introduced mild confusion of their own, and the reduced background count left less real-scene variety in training. Run 9 remains the best result of the experiment.
+
+The single-class binary model appears to peak with moderate performance on a simple dataset, large enough for a proper test split, with a distinct visual boundary between background examples and the primary class. Each attempt to expand the training distribution beyond that scope degraded performance, suggesting that Run 9 may represent the practical ceiling of binary classification without implementing parameter tuning. Run 10 and 11 imply that switching to a multi-class model will be necessary to increase scope without degrading the decision boundary. Adding images beyond the core dataset composition appears to push the model beyond its current capacity.
+
+---
+
+### Run 12 - Binary Model on Multi-Class Dataset
+
+**Hypothesis:** Testing the binary model on the full multi-class dataset (386 catalogue hard negatives) to determine whether catalogue hard negative volume or incremental addition to a converged model was the primary cause of the Run 10 regression.
+
+**Changes:**
+- Full multi-class dataset used: axes (143), wrenches (147), pickaxes (96) as catalogue backgrounds
+- Same hammer images as Run 11 (580)
+- Binary classification maintained
+
+**Dataset:** 1051 total, 580 hammer, 471 backgrounds. Train ~736 / Val ~157 / Test 93.
+
+**Result (held-out TEST SET):**
+- mAP@50: 0.8654 (*-0.0204*)
+- mAP@50-95: 0.5751 (*-0.0078*)
+- Precision: 0.8668 (*-0.0075*)
+- Recall: 0.8879 (*-0.0219*)
+
+**Epochs:** 400 (hit ceiling, best at epoch 295, val mAP@50 0.8398)
+
+**Conclusion:** 386 catalogue hard negatives produced only a ~0.02 mAP@50 reduction from Run 9. Run 10's 21 catalogue hard negatives produced a 0.31 drop. This strongly challenges the catalogue hard negative hypothesis and supports the incremental addition theory: disrupting a previously converged model with a small targeted addition is far more damaging than training from scratch on a larger, more varied dataset. The binary model appears capable of handling large catalogue background pools when trained on them from the start.
+
+---
+
+### Version 2.1 - Multi-Class Initial Result
+
+**Hypothesis:** Multi-class detection will improve Precision on hammer-adjacent objects by giving the model explicit categories for confusing tool types, stabilising the decision boundary and reducing false positives.
+
+**Dataset:** Same as Run 12. 1051 total, 580 hammer, 471 backgrounds. 4 classes: hammer, axe, wrench, pickaxe.
+
+**Result (held-out TEST SET, hammer class only):**
+- mAP@50: 0.8191 (*-0.0667* vs Run 9)
+- mAP@50-95: 0.6280 (**+0.0451** vs Run 9, experiment high)
+- Precision: 0.8300 (*-0.0443* vs Run 9)
+- Recall: 0.8018 (*-0.1080* vs Run 9)
+
+**Epochs:** 400 (hit ceiling, plateaued ~epoch 350-380)
+
+**Conclusion:** mAP@50-95 is the highest in the entire experiment at 0.6280, suggesting the multi-class model produces tighter, more precise bounding boxes when it detects correctly. mAP@50, Precision, and Recall are all below Run 9 and Run 12. The multi-class task is harder — the model sees fewer hammer examples per training step and must simultaneously learn 4 decision boundaries. Both models hit the epoch ceiling without converging, suggesting more training epochs or a larger per-class dataset may be needed before the Version 2 advantage becomes measurable. The mAP@50-95 signal is promising enough to continue.
+
+---
+
+## Pending Experiments
+
+| Experiment | Expected effect | Status |
+|------------|-----------------|--------|
+| ~~Fix 3 tiny/zero-area annotations~~ | Completed in run 4. Minor positive effect confirmed | Done |
+| ~~Add ~100 real-scene images~~ | Completed in run 5. Recall raised to 0.8285, hypothesis confirmed | Done |
+| ~~Failure mode analysis on val set false negatives~~ | Completed. Three failure modes identified: mallets, partial occlusion, worn hammers | Done |
+| ~~Add targeted mallets and partial occlusion examples~~ | Completed in run 6. Recall raised to 0.8421, highest across all runs | Done |
+| ~~Replace low-resolution source images~~ | Completed in run 7. mAP@50-95 improved; full Precision recovery pending hard negative additions | Done |
+| ~~False positive analysis~~ | Completed. Annotation gaps cleaned up; pickaxes and hatchets identified as primary FP source | Done |
+| ~~Add pickaxe and hatchet hard negatives~~ | Completed in run 8. Precision recovered to 0.8765, Recall 0.8503 highest across all runs | Done |
+| ~~Implement train/val/test split~~ | Completed in run 9 (400 epochs, early stop ep266). Test baseline: mAP@50 0.8858, Recall 0.9098, both experiment highs | Done |
+| ~~False negative and false positive analysis (Run 9)~~ | Completed. FN: PDF catalogue and iStock real-scene gaps, ball-peen/cross-peen underrepresented. FP: axe handles, catalogue hatchets, construction workers, wrenches | Done |
+| ~~Add targeted data addressing Run 9 gaps~~ | Completed in run 10. Catalogue hard negatives caused significant regression. mAP@50 dropped to 0.5779. Architectural limitation identified: single-class model lacks requisite variety to handle catalogue tool ambiguity | Done |
+| ~~Remove catalogue hard negatives, isolate ball-peen and cross-peen additions~~ | Completed in run 11. Partial recovery to 0.7849 mAP@50. Run 9 remains experiment ceiling. Binary classification concluded. | Done |
+| ~~Binary model on multi-class dataset~~ | Completed in run 12. 386 catalogue hard negatives produced only ~0.02 mAP@50 reduction. Confirms incremental addition theory over catalogue volume theory. | Done |
+| ~~Multi-class initial result~~ | Completed in V2.1. mAP@50-95 experiment high at 0.6280. mAP@50 and Recall below Run 9. Both models hit epoch ceiling. More data and epochs needed before Version 2 advantage is measurable. | Done |
+| Expand per-class dataset for Version 2 | Add more annotated examples per non-hammer class. Increase epoch ceiling or add early stopping patience. Evaluate whether multi-class model surpasses Run 9 mAP@50 on hammer class. | Next |
 
 ---
 
