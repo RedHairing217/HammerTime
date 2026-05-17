@@ -1,0 +1,27 @@
+# Dataset splits (auto-generated)
+dataset/images/
+dataset/labels/
+dataset/dataset.yaml
+
+# Training runs
+runs/
+
+# Analysis outputs
+outputs/
+
+# Reports
+*.json
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pt
+*.onnx
+*.mlpackage
+*.tflite
+
+# Data
+data/
