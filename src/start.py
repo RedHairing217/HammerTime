@@ -237,6 +237,31 @@ def menu_split() -> None:
         run_prepare()
 
 
+def reopen_dashboard() -> None:
+    header("Re-open dashboard")
+    print("\n  Which pipeline?\n")
+    print("  [1] Single-class detector")
+    print("  [2] Multi-class detector")
+    print()
+    mode_r = prompt()
+    mode   = "binary" if mode_r == "1" else "multi"
+
+    print("\n  Local or public?\n")
+    print("  [1] Local only  (http://localhost:7842)")
+    print("  [2] Public URL  (ngrok)")
+    print()
+    r = prompt()
+
+    dashboard = str(ROOT / "src/dashboard.py")
+    cmd       = [sys.executable, dashboard, "--mode", mode, "--watch_only"]
+    if r == "2":
+        cmd += ["--public"]
+
+    print("\n  Opening dashboard...")
+    subprocess.run(cmd, cwd=ROOT)
+    input("\n  Press Enter to continue.")
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Main
 # ─────────────────────────────────────────────────────────────────────────────
@@ -247,6 +272,7 @@ def main() -> None:
         menu([
             "Single-class detector",
             "Multi-class detector",
+            "Re-open dashboard",
             "Split training data",
             "Settings",
             "Exit",
@@ -258,12 +284,14 @@ def main() -> None:
         elif r == "2":
             menu_multi_class()
         elif r == "3":
-            menu_split()
+            reopen_dashboard()
         elif r == "4":
+            menu_split()
+        elif r == "5":
             header("Settings")
             print("\n  Settings not yet configured.")
             input("\n  Press Enter to continue.")
-        elif r in ("5", "q", "exit"):
+        elif r in ("6", "q", "exit"):
             print("\n  Exiting.\n")
             sys.exit(0)
         else:
