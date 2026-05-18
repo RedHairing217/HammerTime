@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).parent.parent if Path(__file__).parent.name == "src" else Path(__file__).parent
@@ -98,12 +99,30 @@ def run_prepare(target_class: str | None = None) -> None:
     cmd = [str(ROOT / "src/shared/prepare_dataset.py")]
     if target_class:
         cmd += ["--target_class", target_class]
-    run(cmd)
+    print("\n  Preparing dataset...")
+    subprocess.run([sys.executable] + cmd, cwd=ROOT)
 
 
-def run_train(mode: str) -> None:
-    script = "src/binary/train_b.py" if mode == "binary" else "src/multi/train_m.py"
-    run([str(ROOT / script)])
+def run_train(mode: str, target_class: str | None = None) -> None:
+    run_prepare(target_class)
+
+    header("Dashboard")
+    print("\n  Launch dashboard publicly (ngrok) or local only?\n")
+    print("  [1] Local only  (http://localhost:7842)")
+    print("  [2] Public URL  (ngrok -- requires ngrok installed)")
+    print()
+    r = prompt()
+
+    dashboard = str(ROOT / "src/dashboard.py")
+    cmd       = [sys.executable, dashboard, "--mode", mode]
+    if target_class:
+        cmd += ["--target_class", target_class]
+    if r == "2":
+        cmd += ["--public"]
+
+    print("\n  Launching training and dashboard...")
+    subprocess.run(cmd, cwd=ROOT)
+    input("\n  Training complete. Press Enter to continue.")
 
 
 def run_evaluate(mode: str) -> None:
@@ -147,8 +166,7 @@ def menu_single_class() -> None:
 
         if choice == 1:
             if confirm(f"Ready to train single-class detector on [{target_class}]?"):
-                run_prepare(target_class)
-                run_train("binary")
+                run_train("binary", target_class)
 
         elif choice == 2:
             if confirm(f"Evaluate single-class [{target_class}] on held-out test set?"):
@@ -174,7 +192,6 @@ def menu_multi_class() -> None:
 
         if choice == 1:
             if confirm("Ready to train multi-class detector?"):
-                run_prepare()
                 run_train("multi")
 
         elif choice == 2:
